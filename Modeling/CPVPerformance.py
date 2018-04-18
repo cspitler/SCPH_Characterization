@@ -137,7 +137,7 @@ def thermalcalc(report=''):
     Pr = np.empty_like(PVheat)
     R_water = np.empty_like(PVheat)
     R_opad = np.empty_like(PVheat)
-    R_total = np.empty_like(PVheat)
+    R_bottom = np.empty_like(PVheat)
     T_cell = np.empty_like(PVheat)
     
     rho_w = 992.2 #kg/m3
@@ -163,7 +163,7 @@ def thermalcalc(report=''):
             R_water[i][j] = 1/(h*SA_HT)
             R_glass = t_saph/k_saph/SA_HT # [K/W] thermal resistance of glass conduction
             R_opad[i][j] = t_opad/k_comp[i][j]/SA_HT
-            R_total[i][j] = R_glass+R_opad[i][j]+R_water[i][j]
+            R_bottom[i][j] = R_glass+R_opad[i][j]+R_water[i][j]
     
     R_opad_top = 0.000075/0.2/SA_HT
     R_quartz = 0.003/k_quartz/SA_HT
@@ -204,6 +204,8 @@ def thermalcalc(report=''):
     R_opad_side = 0.001/0.2/(0.0055*0.0005)
     R_side = R_opad_side
 
+    R_total = 1/(1/R_top+1/R_bottom)
+    
     #Other Calculations
     T_w_outlet_avg = np.average(T_W[:,-1])
     T_mean = np.average(T_W)    

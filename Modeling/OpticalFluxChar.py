@@ -23,7 +23,7 @@ def export_map(array,filename,suffix,rng,palette,title = ''):
     return()
 
 def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
-                offset_y = 0, offset_x = 0):
+                offset_y = 0, offset_x = 0, exclude = 100):
 
     N_channels = cells_per_side
     w_cell = 0.0055 #5.5mm in m
@@ -132,11 +132,11 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
     starty = int(center_y-w_array/2)
     
     for i in range(cells_per_side):
-        if i != 20:
+        if i != exclude-1:
             y1 = int(starty+i*(w_cell+delta_cells)/pix_size)
             y2 = int(starty+w_cell/pix_size+i*(w_cell+delta_cells)/pix_size)
         for j in range(cells_per_side):
-            if j!=20:
+            if j!=exclude-1:
                 x1 = int(startx+j*(w_cell+delta_cells)/pix_size)
                 x2 = int(startx+w_cell/pix_size+j*(w_cell+delta_cells)/pix_size)
             
@@ -233,4 +233,4 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
     return()
    
 #Fluxmap('65.0_515DNI.csv', 0.15/2,515,11)
-#Fluxmap('58.5_844DNI.xlsx', 0.08/2,844,7,'Mod6_ART', -100,-100)
+Fluxmap('58.5_844DNI.xlsx', 0.08/2,844,7,'Mod6_ART', -100,-100, exclude = 4)

@@ -353,27 +353,6 @@ plt.xlabel('Elapsed Time / min')
 plt.ylim([0,max(df['TR Outlet'])*1.5])
 plt.savefig('PV cooling and TR flow.png',facecolor = 'white',dpi=90, bbox_inches='tight')
 plt.close()
-
-#Jsc and Voc vs time
-fig1 = plt.figure()
-ax1 = fig1.add_subplot(111)
-ax2 = ax1.twinx()
-plt.title('Jsc and Voc vs time')
-plt.xlabel('Elapsed Time / min')
-
-ax1.plot(IV_df.index,IV_df['Jsc'], label = 'Jsc', c = 'b')
-ax1.set_ylim([0,max(IV_df['Jsc'])*1.50])
-ax1.set_ylabel('Jsc [mA/cm$^2$]')
-ax1.legend(loc = 'upper left')
-
-ax2.plot(IV_df.index,IV_df['Voc'], label = 'Voc',c = 'r')
-ax2.set_ylim([0,max(IV_df['Voc'])*1.50])
-ax2.set_ylabel('Voc [Volts]')
-ax2.legend(loc ='upper right')
-
-plt.savefig('Jsc and Voc over time.png',facecolor = 'white',dpi=90, bbox_inches='tight')
-plt.close()
-
 '''
 
 '''
@@ -400,11 +379,7 @@ plt.legend(title = 'Time/min',loc='lower left', fontsize = 12)
 plt.savefig('IV Curves.png',facecolor = 'white',dpi=90, bbox_inches='tight')
 plt.close()
 '''
-'''
-#Estimate power loss in CPV module
-wire_loss = (CPV_wire_R*IV_df['Imp']**2).mean()
-loss_frac = wire_loss/(powerflow_df['PV Power'].mean()+wire_loss)
-'''
+
 '''
 #DNI and GHI
 plt.title('DNI')
@@ -442,23 +417,23 @@ print()
 ks = pd.DataFrame(columns = ['TC','conc','Morning','err','Afternoon','err'])
 for tc in TCs:
     
-    #plt.scatter(morning['DNI'],morning[tc]-morning['PV Inlet'],alpha = 0.35,label='morning', color = 'blue')
-    slope, intercept, r_value, p_value, std_err = stats.linregress(morning['DNI'],morning[tc]-morning['PV Inlet'])
+    plt.scatter(morning['DNI'],morning[tc]-morning['PV Inlet'],alpha = 0.35,label='morning', color = 'blue')
+    slope, intercept, mr_value, p_value, std_err = stats.linregress(morning['DNI'],morning[tc]-morning['PV Inlet'])
     mk =slope/(CPV_heat*probes.at[tc,'conc']*Cell_area)
     merr = std_err/(CPV_heat*probes.at[tc,'conc']*Cell_area)
-    #plt.plot(df['DNI'],intercept+slope*df['DNI'], label ='morning fit', color = 'g')
+    plt.plot(df['DNI'],intercept+slope*df['DNI'], label ='morning fit', color = 'g')
     
     maxTC = temp_df[tc].idxmax()
     afternoon = temp_df.loc[maxDNI:,:]
 
     plt.scatter(afternoon['DNI'],afternoon[tc]-afternoon['PV Inlet'],alpha = 0.35,label='afternoon', color = 'm')
-    slope, intercept, r_value, p_value, std_err = stats.linregress(afternoon['DNI'],afternoon[tc]-afternoon['PV Inlet'])
+    slope, intercept, ar_value, p_value, std_err = stats.linregress(afternoon['DNI'],afternoon[tc]-afternoon['PV Inlet'])
     ak  = slope/(probes.at[tc,'conc']*Cell_area*CPV_heat)
     aerr = std_err/(CPV_heat*probes.at[tc,'conc']*Cell_area)
 
     plt.plot(df['DNI'],intercept+slope*df['DNI'], label = 'afternoon fit', color = 'red')
 
-    k = pd.DataFrame([[tc, probes.at[tc,'conc'], mk,merr,ak,aerr]],
+    k = pd.DataFrame([[tc, probes.at[tc,'conc'], mk,mr_value**2,ak,ar_value**2]],
                      columns = ['TC','conc','Morning','err','Afternoon','err'])
     ks = ks.append(k)
     
@@ -475,35 +450,71 @@ ks.set_index('TC',inplace=True)
 
 print(ks)
 print()
-print(ks[1:]['Afternoon'].describe())
+#print(ks[1:]['Afternoon'].describe())
 
-
-'''
-#Thermal System evaluation
-Thermal = pd.DataFrame(index =df.index)
-Thermal['LMTD']=temp_df[['PV TC1','PV TC2','PV TC3','PV TC5']].mean(axis=1)-temp_df[['PV Outlet','PV Inlet']].mean(axis=1)
-Thermal['U'] = powerflow_df['PV Cooling']/(Thermal['LMTD']*0.00171)
-Thermal['R'] = Thermal['LMTD']/powerflow_df['PV Cooling']
-Thermal['R'] = Thermal['R'][Thermal['R']>0]
-print(Thermal['R'].describe())
-'''
-
-'''
-#DNI vs Jsc
-JvDNI_df = pd.DataFrame(columns = ['Jsc','DNI'])
-J_df = pd.DataFrame(IV_df['Jsc'])
+#DNI vs PV stats
+JvDNI_df = pd.DataFrame()
 JvDNI_df['DNI']=df['DNI']
-JvDNI_df = JvDNI_df.combine_first(J_df)
-JvDNI_df['Jsc']=JvDNI_df['Jsc'].interpolate()
+JvDNI_df = JvDNI_df.combine_first(IV_df[['Jsc','Voc','FF','Pmp']])
 JvDNI_df['DNI']=JvDNI_df['DNI'].interpolate()
+JvDNI_df['Full_Spectrum']=powerflow_df['PV Power']/(data_df['Spillage Adj P']*cell_frac)
+JvDNI_df['Full_Spectrum'] = JvDNI_df['Full_Spectrum'].interpolate()
+JvDNI_df['In_band']=JvDNI_df['Full_Spectrum']/0.638
+JvDNI_df = JvDNI_df[JvDNI_df.index >2]
+JvDNI_df.dropna(axis=0,inplace=True) 
 
-plt.title('DNI vs Jsc Correlation')
-plt.scatter(JvDNI_df['DNI'],JvDNI_df['Jsc'])
-plt.ylim([0,max(JvDNI_df['Jsc'])*1.1])
-plt.xlim([500,max(JvDNI_df['DNI'])*1.1])  #sets x-scale, currently manual for appropriate range
-plt.ylabel('Jsc / Amp/cm$^2$')
-plt.xlabel('DNI / W/m$^2$')
-plt.savefig('DNI Jsc correlation.png',facecolor = 'white',dpi=90, bbox_inches='tight')
-'''
+f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2, sharex=True)
+f.subplots_adjust(left=None, bottom=None, right=None, top=None,
+                wspace=0.5, hspace=None)
 
+JvDNI_df.plot.scatter('DNI','Jsc',ax= ax1, color = 'k',legend=False)
+ax1.set_ylabel('J$_{sc}$ [mA/cm$^2$]')
+ax1.set_ylim([0,max(JvDNI_df['Jsc'])*1.1])
 
+JvDNI_df.plot.scatter('DNI','Voc',ax= ax2, color = 'green', legend=False)
+ax2.set_ylabel('V$_{oc}$ [V]')
+ax2.set_ylim([0,max(JvDNI_df['Voc'])*1.1])
+
+JvDNI_df.plot.scatter('DNI','FF',ax= ax3, color = 'm',legend=False)
+ax3.set_ylabel('FF [%]')
+ax3.set_ylim([0,max(JvDNI_df['FF'])*1.1])
+
+JvDNI_df.plot.scatter('DNI','Full_Spectrum',ax= ax4, color = 'red',label = 'Full Spectrum')
+JvDNI_df.plot.scatter('DNI','In_band',ax= ax4,label = 'In-band')
+handles, labels = ax4.get_legend_handles_labels()
+ax4.legend(handles, labels,loc = 'best', fontsize = 8)
+ax4.set_ylabel('Eff [%]')
+ax4.set_ylim([0,max(JvDNI_df['In_band'])*1.1])
+
+plt.savefig('DNI correlations.png',facecolor = 'white',dpi=200)
+plt.close()
+
+#Time vs PV stats
+f, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2, sharex=True)
+f.subplots_adjust(left=None, bottom=None, right=None, top=None,
+                wspace=0.5, hspace=None)
+
+JvDNI_df.reset_index(inplace=True)
+JvDNI_df.rename({'index':'Time [min]'},axis = 1,inplace=True)
+
+JvDNI_df.plot.scatter('Time [min]','Jsc',ax= ax1,color = 'k', legend=False)
+ax1.set_ylabel('J$_{sc}$ [mA/cm$^2$]')
+ax1.set_ylim([0,max(JvDNI_df['Jsc'])*1.1])
+
+JvDNI_df.plot.scatter('Time [min]','Voc',ax= ax2, color = 'green', legend=False)
+ax2.set_ylabel('V$_{oc}$ [V]')
+ax2.set_ylim([0,max(JvDNI_df['Voc'])*1.1])
+
+JvDNI_df.plot.scatter('Time [min]','FF',ax= ax3,color = 'm', legend=False)
+ax3.set_ylabel('FF [%]')
+ax3.set_ylim([0,max(JvDNI_df['FF'])*1.1])
+
+JvDNI_df.plot.scatter('Time [min]','Full_Spectrum',ax= ax4, color = 'red', label = 'Full Spectrum')
+JvDNI_df.plot.scatter('Time [min]','In_band',ax= ax4,label = 'In-band')
+handles, labels = ax4.get_legend_handles_labels()
+ax4.legend(handles, labels,loc = 'best', fontsize = 8)
+ax4.set_ylabel('Eff [%]')
+ax4.set_ylim([0,max(JvDNI_df['In_band'])*1.1])
+
+plt.savefig('PV Stats over time.png',facecolor = 'white',dpi=200, bbox_inches='tight')
+plt.close()
