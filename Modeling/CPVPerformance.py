@@ -31,6 +31,8 @@ def SetParameters(param):
     global p_conc
     global DNI
     global d_channel
+    global Cell_eff
+
     
     T_amb = float(param[0][2])+273
     T_cell_lim = float(param[1][2])+273
@@ -44,6 +46,8 @@ def SetParameters(param):
     p_conc = float(param[9][2])
     DNI = float(param[10][2])
     d_channel = float(param[11][2])
+    Cell_eff = float(param[12][2])
+
     return()
     
 def SolarSpectrum(eff,art):
@@ -447,7 +451,6 @@ module = 6
 
 module_file = 'Mod6_Design.csv'
 Cell_art = 'Mod6_CellART.csv'
-Cell_eff = .22
 
 calculated_props = {}
 

@@ -217,8 +217,9 @@ data_df.to_excel('_'.join((filename,'calculations.xlsx')))
 #Power plot
 powerflow_df = pd.DataFrame(columns = ['Receiver','PV Cooling'])
 TR_flow = df['TR Flow V'].mean()*TR_flow_cal
-powerflow_df['Receiver']=(df['TR Outlet'].astype(float)-df['TR Inlet'].astype(float))*TR_flow*Cp_water
-powerflow_df['PV Cooling'] = (df['PV Outlet'].astype(float)-df['PV Inlet'].astype(float))*df['PV Flow V']*Cp_water
+PV_flow = df['PV Flow V'].mean()*PV_flow_cal
+powerflow_df['Receiver']=(df['TR Outlet'].astype(float)-df['TR Inlet'].astype(float))*data_df['TR Flow']*Cp_water
+powerflow_df['PV Cooling'] = (df['PV Outlet'].astype(float)-df['PV Inlet'].astype(float))*data_df['PV Flow']*Cp_water
 powerflow_df = pd.concat([powerflow_df,mpp_df['Power (W)'].astype(float)],axis =1)
 powerflow_df.rename(columns = {'Power (W)':'PV Power'},inplace=True)
 powerflow_df['R Loss'] = (CPV_wire_R*mpp_df['Current (A)']**2)
@@ -238,6 +239,8 @@ powerflow_df['Elec Loss'] = powerflow_df[['R Loss','Mis Loss']].sum(axis = 1)
 
 powerflow_df = powerflow_df[powerflow_df>0]
 powerplot_df=powerflow_df[['PV Power','PV Cooling','Transmitted','Reflection']]
+
+powerplot_df = powerplot_df.rolling(window = 5, axis = 0).median() #plot smoothing
 
 print('Missing Power')
 data_df['Error'] = (data_df['Spillage Adj P']-powerplot_df.sum(axis = 1))/data_df['Spillage Adj P']
@@ -294,10 +297,11 @@ TRfrac = (powerflow_df['Transmitted']/data_df['Spillage Adj P']).median()
 PVfrac = (powerflow_df['PV Power']/data_df['Spillage Adj P']).median()
 Coolingfrac = (powerflow_df['PV Cooling']/data_df['Spillage Adj P']).median()
 Reflection = (powerflow_df['Reflection']/data_df['Spillage Adj P']).median()
-losses = 1-(TRfrac+PVfrac+Coolingfrac+Reflection)
+Elec_loss = (powerflow_df['Elec Loss']/data_df['Spillage Adj P']).median()
+losses = 1-(TRfrac+PVfrac+Coolingfrac+Reflection+Elec_loss)
 
 print('Power Flow Synopsis')
-print('TR {0:0.3f}, PVE {1:0.3f}, PVH {2:0.3f}, Refl {3:0.3f}, Loss {4:0.3f}'.format(TRfrac, PVfrac, Coolingfrac,Reflection, losses))
+print('TR {0:0.3f}, PVE {1:0.3f}, PVH {2:0.3f}, Refl {3:0.3f}, Elec Loss {5:0.3f}, Other Loss {4:0.3f}'.format(TRfrac, PVfrac, Coolingfrac,Reflection, losses,Elec_loss))
 print()
 powerflow_df.to_excel('_'.join((filename,'powerflow.xlsx')))
 
@@ -323,11 +327,9 @@ maxes = TCs + ['DNI','PV Outlet','PV Inlet']
 for mx in maxes:
     print(mx, round(temp_df[mx].max(),2), round(temp_df[mx].idxmax(),2))
     
-#Plot of temperaturesplt.title('DNI')
-#plt.plot(temp_df.index,temp_df['DNI']/10, label = 'DNI/10')
+#Plot of temperatures
 plt.plot(temp_df.index,temp_df['PV TC1'], label = 'TC1')
 plt.plot(temp_df.index,temp_df['PV TC2'], label = 'TC2')
-#plt.plot(temp_df.index,temp_df['PV TC3'])
 plt.plot(temp_df.index,temp_df['PV TC5'], label = 'TC3')
 plt.plot(temp_df.index,temp_df['PV Inlet'])
 plt.plot(temp_df.index,temp_df['PV Outlet'])
@@ -518,3 +520,9 @@ ax4.set_ylim([0,max(JvDNI_df['In_band'])*1.1])
 
 plt.savefig('PV Stats over time.png',facecolor = 'white',dpi=200, bbox_inches='tight')
 plt.close()
+
+print(JvDNI_df['Full_Spectrum'].mean())
+
+
+#TEA work
+
