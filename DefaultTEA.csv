@@ -1,0 +1,25 @@
+CSP Degradation,0.005,0.005,0.006
+Power use,0,0,32
+Collector Cost,187.5,187.5,250
+PV Cost,66.65,66.65,112
+Indirect Markup,0.5,0.5,0.75
+Debt to equity,0.5,0.5,0.75
+Interest Rate,0.07,0.07,0.085
+Loan term,25,25,30
+Effective Tax rate,0.269,0.269,0.28
+Nominal Discount Rate,0.08,0.08,0.1
+CPV O&M,4,4,8
+CSP O&M,13.5,13.5,15
+O&M Escalation,0.0213,0.0213,0.0408
+Average DNI,6.5,6.5,6.5
+Cost of Electricity,0.139,0.139,0.139
+Years of operation,25,25,30
+Price of fuel,2.24,2.24,2.24
+MACRS,yes,yes,yes
+Federal ITC,0.22,0.22,0.26
+State ITC,0,0,0
+Profit Margin,0,0.25,0
+Thermal Nameplate,1,1,1
+CPV Degradation,0.01,0.01,0.015
+Electric Fraction,0.02,0.04,0.1
+Heat Fraction,0.45,0.5,0.6

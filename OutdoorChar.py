@@ -14,6 +14,7 @@ from scipy import stats
 import string
 import sys
 from shutil import copyfile
+import TEA
 
 def TC_probe(locations,array):
 
@@ -56,6 +57,8 @@ fluxmap = '58.5_844DNI'
 Mod = 6
 
 filename = test_date
+
+system = TEA.PVTsystem('DefaultTEA.csv')
 
 #Calibration constants
 PV_flow_cal = (20/3-2/6)/(5)
@@ -305,7 +308,6 @@ print('TR {0:0.3f}, PVE {1:0.3f}, PVH {2:0.3f}, Refl {3:0.3f}, Elec Loss {5:0.3f
 print()
 powerflow_df.to_excel('_'.join((filename,'powerflow.xlsx')))
 
-#Economic Analysis based on test data
 Pin = integrate.trapz(data_df['Spillage Adj P'],data_df.index)/60/1000
 nonspill = integrate.trapz(data_df['Spillage Adj P'],data_df.index)/60/1000
 
@@ -313,7 +315,13 @@ Heat = integrate.trapz(powerflow_df['Transmitted'][pd.notnull(powerflow_df['Tran
 Elec = integrate.trapz(powerflow_df['PV Power'][pd.notnull(powerflow_df['PV Power'])],dx=0.25)/60/1000
 print('Total Heat [kWh]',Heat)
 print('Total Electricity [kWh]',Elec)
+print()
+#Economic Analysis based on test data
 
+system.calcLCOH(PVfrac,TRfrac)
+print('LCOH: {0:.2f} cent/kWh'.format(system.LCOEnergy))
+print('payback: {0:.2f}years'.format(system.payback))
+print()
 
 #Create a specific temperature dataframe for analysis
 temp_df = df[['DNI','PV TC1','PV TC2','PV TC3','PV TC5',
@@ -522,7 +530,3 @@ plt.savefig('PV Stats over time.png',facecolor = 'white',dpi=200, bbox_inches='t
 plt.close()
 
 print(JvDNI_df['Full_Spectrum'].mean())
-
-
-#TEA work
-
