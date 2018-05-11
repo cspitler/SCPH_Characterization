@@ -113,7 +113,7 @@ def bubbles(low, high,bound,bubblefile=''):
         bub_dist = np.genfromtxt('.'.join((bubblefile,'csv')),dtype=float,delimiter =',')
         k_comp = 1/((bub_dist/k_air)+((1-bub_dist)/k_opad))
     else:
-        area = np.random.uniform(low,high,size=(7,7))
+        area = np.random.uniform(low,high,size=(cells_per_side,cells_per_side))
         k_comp = np.empty_like(area)
         if bound == 'low':
             k_comp = 1/((area/k_air)+((1-area)/k_opad))
@@ -143,7 +143,7 @@ def thermalcalc(report=''):
     R_opad = np.empty_like(PVheat)
     R_bottom = np.empty_like(PVheat)
     T_cell = np.empty_like(PVheat)
-    
+
     rho_w = 992.2 #kg/m3
     mu_w = 0.0006527 #Pa s
     cp_w = 4187 # J/kg/K
@@ -233,16 +233,16 @@ def thermalcalc(report=''):
     '''Cell Temp Calculation'''
     T_drop = PVheat*R_total
     T_cell_cooled = T_drop+T_W
-        
+
     Tmax = np.max(T_cell_not-273)
     Tmin = np.min([T_cell_cooled])
     print(Tmax-273, np.max(T_cell_cooled)-273)
     bins = np.linspace(Tmin,Tmax,20+1)
     colors = sns.color_palette("coolwarm",20).as_hex()
-     
-    heatmap(T_cell_cooled,bins,colors,'cooled')
-    heatmap(T_cell_not,bins,colors,'not cooled')
-            
+
+    #heatmap(T_cell_cooled,bins,colors,'cooled')
+    #heatmap(T_cell_not,bins,colors,'not cooled')
+      
     if report == 1:
         '''Calculation reporting'''
         print('''The thermal and hydrodynamic entry lenths are {0:.4f} and {1:.4f}, respectively'''.format(x_fdt,x_fdh))
@@ -277,6 +277,8 @@ def thermalcalc(report=''):
 '''Plots a heat map for the cell array'''
 
 def heatmap(array,bins, colors, savefile):
+    
+    #call function is affecting array somehow
     fig1 = plt.figure()
     ax1 = fig1.add_subplot(111, aspect='equal')
     pad = 0.005
@@ -302,7 +304,6 @@ def heatmap(array,bins, colors, savefile):
     
     xstart = r_aperture-(w_cell/2)-(w_cell+delta_cells)*(3)
     ystart = r_aperture-(w_cell/2)+(w_cell+delta_cells)*(3)
-    print(xstart,ystart)
 
     #textoffset = w_cell*0.2
     
@@ -446,11 +447,11 @@ def MaxFlux():
 ############################################################################
 '''Sets up file and report system'''
 
-fluxFolder = '58.5_844DNI'
-module = 6
+fluxFolder = '65.0_515DNI'
+module = 7
 
-module_file = 'Mod6_Design.csv'
-Cell_art = 'Mod6_CellART.csv'
+module_file = 'Mod7_Design.csv'
+Cell_art = 'Mod7_CellART.csv'
 
 calculated_props = {}
 
@@ -465,9 +466,9 @@ T_w_inlet = T_amb # [K] inlet water temperature
 T_w_inlet = 29+273 # [K] inlet water temperature
 
 '''Set all geometry parameters:'''
-r_aperture = 0.08/2
+r_aperture = 0.15/2
 w_cell = 0.0055 # [m] width/length of cell
-cells_per_side = 7
+cells_per_side = 11
 N_channels = cells_per_side # [] total number of cooling channels
 delta_cells = 0.001 # [m] distance between cells
 w_channel = w_cell # [m] set each channel width to cell width
@@ -486,13 +487,14 @@ concdist = np.genfromtxt(os.path.join('Optical_results',fluxFolder,' '.join((flu
                          dtype = float, delimiter = ',')
 powerdist = concdist*DNI*(w_cell**2)
 PVheat = powerdist*heatfraction
+
 PVelec = powerdist*elecfraction
 
 calculated_props['heatFraction'] = np.mean(heatfraction)
 calculated_props['elecFraction'] = np.mean(elecfraction)
 
-PVheat[3,:]=0
-PVheat[:,3]=0
+#PVheat[5,:]=0
+PVheat[:,5]=0
 
 '''Thermal characterization calculations under each cell'''
 Temp_map = thermalcalc(1)[0]
@@ -518,5 +520,29 @@ savefile = os.path.join('Module_Properties',' '.join((fluxFolder,str(module),"st
 pd.DataFrame.from_dict(calculated_props, orient = 'index').to_csv(savefile)
 #np.savetxt(' '.join((scenario,"Temp map.csv")),Temp_map,delimiter=',')
 
+'''
+mlist = np.arange(0.001,0.021,0.001)
+Tmax = []
+Tmean = []
+Tmed = []
+p = []
+for ms in mlist:
+    m_dot = ms
+    props = thermalcalc()
+    Tmax.append(np.max(props[0]))
+    Tmean.append(np.mean(props[0]))
+    Tmed.append(np.median(props[0]))
+    p.append(props[1])
 
-
+fig1 = plt.figure()
+axx = fig1.add_subplot(111)
+axy = axx.twinx()
+axx.plot(mlist,Tmax, label ='max')
+axx.plot(mlist,Tmean, label ='mean')
+axx.plot(mlist,Tmed, label ='median')
+axy.plot(mlist,p,label='Pressure')
+axx.set_xlabel('Flow rate kg/s')
+axx.set_ylabel('Temperatures deg C')
+axy.set_ylabel('Pressure Drop PSI')
+fig1.savefig('Temperature vs flow rate',dpi = 300)
+'''

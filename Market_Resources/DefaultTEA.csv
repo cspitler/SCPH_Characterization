@@ -1,7 +1,7 @@
 CSP Degradation,0.005,0.005,0.006
 Power use,0,0,32
-Collector Cost,187.5,187.5,250
-PV Cost,66.65,66.65,112
+Collector Cost,187.5,200,250
+PV Cost,66.65,104,112
 Indirect Markup,0.5,0.5,0.75
 Debt to equity,0.5,0.5,0.75
 Interest Rate,0.07,0.07,0.085
@@ -21,5 +21,5 @@ State ITC,0,0,0
 Profit Margin,0,0.25,0
 Thermal Nameplate,1,1,1
 CPV Degradation,0.01,0.01,0.015
-Electric Fraction,0.02,0.04,0.1
+Electric Fraction,0.06,0.08,0.1
 Heat Fraction,0.45,0.5,0.6

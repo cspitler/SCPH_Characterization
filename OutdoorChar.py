@@ -8,6 +8,7 @@ Created on Mon Nov  6 16:40:51 2017
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
 import os
 from scipy import integrate
 from scipy import stats
@@ -53,12 +54,13 @@ shading = 0.08 #on dish from receiver
 mirror_loss = 0.11
 
 test_date = '1-23'
+iteration = 1
 fluxmap = '58.5_844DNI'
 Mod = 6
 
 filename = test_date
 
-system = TEA.PVTsystem('DefaultTEA.csv')
+system = TEA.PVTsystem(os.path.join('Market_Resources','DefaultTEA.csv'))
 
 #Calibration constants
 PV_flow_cal = (20/3-2/6)/(5)
@@ -75,6 +77,14 @@ CPV_mismatch = 0.085
 CPV_wire_R = 0.126
 Cell_area = 0.0055**2
 
+testID = '_'.join((test_date,str(iteration)))
+testOutput = []
+allTests = pd.read_csv(os.path.join('Test_Data','TestDatabase.csv'),index_col = 0)
+replace = False
+if testID in allTests.index: allTests.drop(testID, axis = 0, inplace = True)
+
+testOutput = pd.Series(index = allTests.columns, name = testID)
+testOutput.Date = test_date
 #Imports guide to channel names
 xls = pd.ExcelFile(os.path.join('Test_Data',test_date,'DATALOGGER HEADER.xlsx'))
 channel_df = xls.parse()
@@ -116,8 +126,8 @@ df['Sec'] = df['Sec'].astype(int)+df['msec'].astype(int)/1000
 df['Min']= df['Min'].astype(int)+df['Sec'].astype(float)/60
 df['Hr']= df['Hr'].astype(int)+df['Min'].astype(float)/60
 df['Elapsed Min'] = (df['Hr'].astype(float)-min(df['Hr']))*60
+testOutput.Duration = max(df['Elapsed Min'])
 df.set_index('Elapsed Min',inplace=True)
-
 
 print('Module Parameters from Model')
 source_loc = os.path.join('Test_Data',test_date,'sources')
@@ -204,6 +214,7 @@ os.chdir(os.path.join('Test_Data',test_date,'results'))
 
 df['DNI'] = df['DNI Sensor (V)'].astype(float)/DNI_cal
 df['Pin'] = df['DNI'].astype(float)*masking*(1-shading)*(1-mirror_loss)*1.65**2
+testOutput.MaxDNI = max(df['DNI'])
 
 data_df = df.copy(deep=True)
 data_df['Spillage Adj P'] = df['Pin']*TRwindow
@@ -248,6 +259,7 @@ powerplot_df = powerplot_df.rolling(window = 5, axis = 0).median() #plot smoothi
 print('Missing Power')
 data_df['Error'] = (data_df['Spillage Adj P']-powerplot_df.sum(axis = 1))/data_df['Spillage Adj P']
 print(data_df['Error'].median())
+testOutput.ModelMismatch = data_df['Error'].median()
 print()
 
 #Modeled Power flow
@@ -267,6 +279,9 @@ for c in powerplot_df.columns.tolist():
     
 error_df = pd.DataFrame.from_dict(error_dict, orient = 'index')
 print(error_df)
+testOutput.PVMismatch = error_dict['PV Power']['frac delta']
+testOutput.CoolingMismatch = error_dict['PV Cooling']['frac delta']
+testOutput.TRMismatch = error_dict['Transmitted']['frac delta']
 print()
 
 ##Plot power
@@ -306,6 +321,11 @@ losses = 1-(TRfrac+PVfrac+Coolingfrac+Reflection+Elec_loss)
 print('Power Flow Synopsis')
 print('TR {0:0.3f}, PVE {1:0.3f}, PVH {2:0.3f}, Refl {3:0.3f}, Elec Loss {5:0.3f}, Other Loss {4:0.3f}'.format(TRfrac, PVfrac, Coolingfrac,Reflection, losses,Elec_loss))
 print()
+
+testOutput.PVFrac = PVfrac
+testOutput.CoolingFrac = Coolingfrac
+testOutput.TRFrac = TRfrac
+
 powerflow_df.to_excel('_'.join((filename,'powerflow.xlsx')))
 
 Pin = integrate.trapz(data_df['Spillage Adj P'],data_df.index)/60/1000
@@ -315,6 +335,9 @@ Heat = integrate.trapz(powerflow_df['Transmitted'][pd.notnull(powerflow_df['Tran
 Elec = integrate.trapz(powerflow_df['PV Power'][pd.notnull(powerflow_df['PV Power'])],dx=0.25)/60/1000
 print('Total Heat [kWh]',Heat)
 print('Total Electricity [kWh]',Elec)
+testOutput.TotalHeat = Heat
+testOutput.TotalElec = Elec
+
 print()
 #Economic Analysis based on test data
 
@@ -349,7 +372,9 @@ plt.ylim([0,max(df['DNI']/10)*1.1])
 plt.legend(loc =0)
 plt.savefig('PV cell temperatures.png',facecolor = 'white',dpi=300, bbox_inches='tight')
 plt.close()
-
+print('Plot Temperatures')
+testOutput.MaxCellTemp = max(temp_df.loc[:, temp_df.columns != 'DNI'].max(axis = 1))
+print()
 '''
 #TR and PV inlet outlet
 plt.title('PV Cooling and TR Flow Temperatures')
@@ -530,3 +555,12 @@ plt.savefig('PV Stats over time.png',facecolor = 'white',dpi=200, bbox_inches='t
 plt.close()
 
 print(JvDNI_df['Full_Spectrum'].mean())
+
+
+#Add test data to database
+allTests = allTests.append(testOutput,ignore_index=False)
+
+os.chdir('..')
+os.chdir('..')
+allTests.to_csv('TestDatabase.csv')
+
