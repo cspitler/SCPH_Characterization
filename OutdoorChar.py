@@ -48,13 +48,16 @@ def TC_probe(locations,array):
         
 '''TEST PARAMETERS FOR CALCULATION'''
 
+#Common errors: On read_csv, Delimination is set wrong try eith er',' or '\t'
+
+
 #Test parameters
 masking = 0.35 
 shading = 0.08 #on dish from receiver
 mirror_loss = 0.11
 
 test_date = '1-23'
-iteration = 1
+test = 'Test 1'
 fluxmap = '58.5_844DNI'
 Mod = 6
 
@@ -77,7 +80,7 @@ CPV_mismatch = 0.085
 CPV_wire_R = 0.126
 Cell_area = 0.0055**2
 
-testID = '_'.join((test_date,str(iteration)))
+testID = '_'.join((test_date,test))
 testOutput = []
 allTests = pd.read_csv(os.path.join('Test_Data','TestDatabase.csv'),index_col = 0)
 replace = False
@@ -90,7 +93,7 @@ xls = pd.ExcelFile(os.path.join('Test_Data',test_date,'DATALOGGER HEADER.xlsx'))
 channel_df = xls.parse()
 
 #Imports metrics from IV sweeps
-IV_df = pd.read_table(os.path.join('Test_Data',test_date,''.join((test_date,' Test 1.txt'))))
+IV_df = pd.read_table(os.path.join('Test_Data',test_date,''.join((test_date,' ',test,'.txt'))))
 IV_df['time (min)'] = IV_df['time (s)    '].astype(float)/60 #
 IV_inteveral = IV_df.at[1,'time (s)    ']-IV_df.at[0,'time (s)    ']
 IV_df.set_index('time (min)',inplace=True)
@@ -99,7 +102,7 @@ mask = IV_df.isin([np.inf,-np.inf])
 IV_df = IV_df.where(~mask, other=np.nan)
 
 #Imports IV sweeps
-sweep_df = pd.read_table(os.path.join('Test_Data',test_date,''.join((test_date,' Test 1-1.txt'))))
+sweep_df = pd.read_table(os.path.join('Test_Data',test_date,''.join((test_date,' ',test,'-1.txt'))))
 sweep_df['Voltage (V)'] = sweep_df['Voltage (V)'].str.replace(', ','')
 sweep_df['Voltage (V)'] = sweep_df['Voltage (V)'].str.replace('[','')
 sweep_df['Voltage (V)'] = sweep_df['Voltage (V)'].str.replace(']','')
@@ -108,12 +111,12 @@ starts = starts[starts['Voltage (V)'].astype(float)>0]
 sweep_idx = starts.index.values.tolist()
 
 #Imports mpp log
-mpp_df = pd.read_table(os.path.join('Test_Data',test_date,''.join((test_date,' Test 1-1-1.txt'))))
+mpp_df = pd.read_table(os.path.join('Test_Data',test_date,''.join((test_date,' ',test,'-1-1.txt'))))
 mpp_df['Elapsed Min']=mpp_df['Time (s)']/60
 mpp_df.set_index('Elapsed Min',inplace=True)
 
 #Imports data logger data
-df = pd.read_csv(os.path.join('Test_Data',test_date,''.join((test_date,' Test 1.csv'))),sep = '\t')
+df = pd.read_csv(os.path.join('Test_Data',test_date,''.join((test_date,' ',test,'.csv'))),sep = '\t')
 
 #Renames channels with descriptor names
 assign = dict(zip(channel_df['CHANNEL'],channel_df['ASSIGNMENT']))
@@ -213,7 +216,7 @@ os.chdir(os.path.join('Test_Data',test_date,'results'))
 '''CALCULATIONS AND PLOTTING SECTION'''
 
 df['DNI'] = df['DNI Sensor (V)'].astype(float)/DNI_cal
-df['Pin'] = df['DNI'].astype(float)*masking*(1-shading)*(1-mirror_loss)*1.65**2
+df['Pin'] = df['DNI'].astype(float)*masking*1.65**2*(1-shading)*(1-mirror_loss)
 testOutput.MaxDNI = max(df['DNI'])
 
 data_df = df.copy(deep=True)
@@ -435,39 +438,40 @@ plt.close()
 #DNI vs Cell Temp
 start = 0
 maxDNI = temp_df['DNI'].idxmax()
-temp_df = temp_df[temp_df['DNI']>500]
+#temp_df = temp_df[temp_df['DNI']>500]
+
 temp_df['Avg']=temp_df[['PV TC1','PV TC2','PV TC5']].mean(axis=1)
 #temp_df = temp_df[temp_df.index >60]
 morning = temp_df.loc[:maxDNI,:]
+afternoon = temp_df.loc[maxDNI:,:]
+
 #afternoon = temp_df.loc[maxDNI:,:]
 
 Avg_df=pd.DataFrame()
 Avg_df['DNI'] = temp_df['DNI']
 Avg_df['Avg dT'] = temp_df['Avg']-temp_df['PV Inlet']
 Avg_df.to_excel('TvDNI plot.xlsx')
-TCs = ['Avg','PV TC1','PV TC2', 'PV TC5']
-
+TCs = ['PV TC1','PV TC2', 'PV TC5']
 print(probes)
 print()
+
 ks = pd.DataFrame(columns = ['TC','conc','Morning','err','Afternoon','err'])
 for tc in TCs:
-    
     plt.scatter(morning['DNI'],morning[tc]-morning['PV Inlet'],alpha = 0.35,label='morning', color = 'blue')
     slope, intercept, mr_value, p_value, std_err = stats.linregress(morning['DNI'],morning[tc]-morning['PV Inlet'])
-    mk =slope/(CPV_heat*probes.at[tc,'conc']*Cell_area)
-    merr = std_err/(CPV_heat*probes.at[tc,'conc']*Cell_area)
+    print((morning[tc]-morning['PV Inlet']).mean())
+    mk =slope/(CPV_heat*probes.at[tc,'conc']*Cell_area*masking)
+    merr = std_err/(CPV_heat*probes.at[tc,'conc']*Cell_area*masking)
     plt.plot(df['DNI'],intercept+slope*df['DNI'], label ='morning fit', color = 'g')
     
     maxTC = temp_df[tc].idxmax()
-    afternoon = temp_df.loc[maxDNI:,:]
-
+       
     plt.scatter(afternoon['DNI'],afternoon[tc]-afternoon['PV Inlet'],alpha = 0.35,label='afternoon', color = 'm')
     slope, intercept, ar_value, p_value, std_err = stats.linregress(afternoon['DNI'],afternoon[tc]-afternoon['PV Inlet'])
-    ak  = slope/(probes.at[tc,'conc']*Cell_area*CPV_heat)
-    aerr = std_err/(CPV_heat*probes.at[tc,'conc']*Cell_area)
-
+    ak  = slope/(probes.at[tc,'conc']*Cell_area*CPV_heat*masking)
+    aerr = std_err/(CPV_heat*probes.at[tc,'conc']*Cell_area*masking)
     plt.plot(df['DNI'],intercept+slope*df['DNI'], label = 'afternoon fit', color = 'red')
-
+    
     k = pd.DataFrame([[tc, probes.at[tc,'conc'], mk,mr_value**2,ak,ar_value**2]],
                      columns = ['TC','conc','Morning','err','Afternoon','err'])
     ks = ks.append(k)

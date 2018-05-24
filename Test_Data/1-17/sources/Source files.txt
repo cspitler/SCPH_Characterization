@@ -1,0 +1,4 @@
+Modeling/Module_Properties/58.5_844DNI 6 stats.csv
+Modeling/Optical_results/58.5_844DNI/58.5_844DNI conc.csv
+Modeling/Optical_results/58.5_844DNI/58.5_844DNI stats.csv
+Modeling/Optical_results/58.5_844DNI/Mod6_ART.csv
