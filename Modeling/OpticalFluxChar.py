@@ -18,12 +18,13 @@ def export_map(array,filename,suffix,rng,palette,title = ''):
     ax1 = fig1.add_subplot(111,aspect='equal')
     ax1 = sns.heatmap(array,vmin = rng[0],vmax = rng[1],xticklabels=False, yticklabels=False,cmap=palette)
     ax1.set_title(title)
+    print('Saving map to', os.getcwd() , ' '.join((filename,suffix)))
     fig1.savefig(' '.join((filename,suffix)), facecolor = 'white',dpi=90, bbox_inches='tight')  
     plt.close()
     return()
 
 def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
-                offset_y = 0, offset_x = 0, exclude = 100):
+                offset_y = 0, offset_x = 0, exclude = []):
 
     N_channels = cells_per_side
     w_cell = 0.0055 #5.5mm in m
@@ -46,9 +47,9 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
         pix_size = 6*0.0254/len(raw) #6inch plate converted to mm divided by rows in map
 
     filename = '.'.join(fluxFile.split('.')[:-1])
+    print('Read in flux file')
 
     raw = np.flipud(raw)
-    
     #truncates plot to window area only
     length = len(raw)
     width = len(raw[0])
@@ -70,10 +71,10 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
     if leftX <0: leftX = 0
     if bottomY >= len(raw): bottomY =len(raw)-1
     if rightX >= len(raw[0]): rightX =len(raw[0])-1
-
+    
     #raw = raw[topY:bottomY,leftX:rightX]
     window_area = raw[topY:bottomY,leftX:rightX]
-    
+    print('Trimmed to Window Area')
     #Makes arrays for mapping    
     abs_map = np.zeros_like(raw)
     refl_map = np.zeros_like(raw)
@@ -112,7 +113,8 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
                 refl_map[i,lx:x]=r_bypass
                 tran_map[i,lx:x]=t_bypass
     
-    print(np.mean(window))
+    print('Window Marked')
+    
     #mark where channels are
     w_Channels = round((N_channels*w_cell+(N_channels-1)*delta_cells)/pix_size)
     start = m.floor(center_x-w_Channels/2)
@@ -125,18 +127,25 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
                 refl_map[i,x1:x2]=[r_channel if x !=0 else x for x in refl_map[i,x1:x2]]
                 tran_map[i,x1:x2]=[t_channel if x !=0 else x for x in tran_map[i,x1:x2]]  
             channels[i,x1:x2]=raw[i,x1:x2]
-      
+     
+    print('Channels Marked')
     #Draws in cells
     w_array = round((N_channels*w_cell+(N_channels-1)*delta_cells)/pix_size)
     startx = int(center_x-w_array/2)
     starty = int(center_y-w_array/2)
     
+    letterToNum = dict([(let,num) for num, let in enumerate('abcdefghijklmnopqrstuvwxyz',1)])
+    rows = [letterToNum[x] for x in exclude if type(x) == str]
+    
+    columns = [x for x in exclude if type(x) == int]
+    
+    errorlist = []
     for i in range(cells_per_side):
-        if i != exclude-1:
+        if i+1 not in rows:
             y1 = int(starty+i*(w_cell+delta_cells)/pix_size)
             y2 = int(starty+w_cell/pix_size+i*(w_cell+delta_cells)/pix_size)
         for j in range(cells_per_side):
-            if j!=exclude-1:
+            if j+1 not in columns:
                 x1 = int(startx+j*(w_cell+delta_cells)/pix_size)
                 x2 = int(startx+w_cell/pix_size+j*(w_cell+delta_cells)/pix_size)
             
@@ -144,19 +153,39 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
             #Known issue where np.any(z!=0) casts to shapes larger than they exist
             #print(y1,y2,x1,x2)
             fine = False
+            aGood = False
+            rGood = False
+            tGood = False
+
             while not fine:
                 try:
                     if artFile:
                         abs_map[y1:y2,x1:x2]=[a_cell if np.any(z !=0) else x for x in abs_map[y1:y2,x1:x2]]
+                        aGood = True
                         refl_map[y1:y2,x1:x2]=[r_cell if np.any(z !=0) else x for x in refl_map[y1:y2,x1:x2]]
+                        rGood = True
                         tran_map[y1:y2,x1:x2]=[t_cell if np.any(z !=0) else x for x in tran_map[y1:y2,x1:x2]]
+                        tGood = True
                     fine = True
                 except:
-                    x2-=1
+                    errorlist.append([i,j,y2-y1,x2-x1, aGood, rGood, tGood])
+                    if y2-y1 > x2-x1: 
+                        while y2-y1 > x2-x1: 
+                            x2+=1
+                    if y2-y1 < x2-x1: 
+                        while y2-y1 < x2-x1: 
+                            y2+=1
             rawxy = raw[y1:y2,x1:x2]            
             conc[i][j]=np.mean(rawxy/map_DNI)
             power[i][j]=np.sum(rawxy)*pix_size**2
-    print(np.mean(conc))
+    print('Cells Marked')
+    print('Average cell concentration: ', np.mean(conc))
+    print()
+    
+    print('Errors in cell assignement')
+    errorDF = pd.DataFrame(errorlist, columns = ['Row','Column','dY','dX','a','r','t'])
+    print(errorDF)    
+    print()
     if artFile:
         
         absorbed = raw*abs_map
@@ -168,16 +197,17 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
         tran_power = np.sum(transmitted)*pix_size**2
         
         artDF = pd.DataFrame()
+        
         acellpow = (np.sum(absorbed[absorbed == raw*a_cell])*pix_size**2)
-        achanpow =(np.sum(absorbed[absorbed == raw*a_channel])*pix_size**2)
-        abypow = (np.sum(absorbed[absorbed == raw*a_bypass])*pix_size**2)
-        
         rcellpow = (np.sum(reflected[reflected == raw*r_cell])*pix_size**2)
-        rchanpow = (np.sum(reflected[reflected == raw*r_channel])*pix_size**2)
-        rbypow = (np.sum(reflected[reflected == raw*r_bypass])*pix_size**2)
-        
         tcellpow = (np.sum(transmitted[transmitted == raw*t_cell])*pix_size**2)
+
+        achanpow =(np.sum(absorbed[absorbed == raw*a_channel])*pix_size**2)
+        rchanpow = (np.sum(reflected[reflected == raw*r_channel])*pix_size**2)
         tchanpow = (np.sum(transmitted[transmitted == raw*t_channel])*pix_size**2)
+
+        abypow = (np.sum(absorbed[absorbed == raw*a_bypass])*pix_size**2)
+        rbypow = (np.sum(reflected[reflected == raw*r_bypass])*pix_size**2)
         tbypow = (np.sum(transmitted[transmitted == raw*t_bypass])*pix_size**2)
     
         artDF['Bypass No Chan'] = pd.Series([sum([abypow,rbypow,tbypow]),abypow,rbypow,tbypow])
@@ -186,14 +216,17 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
         artDF['Total'] = artDF.apply((lambda x:sum(x)),axis = 1)
         artDF.set_index([['Power','Absorbed','Reflected','Transmitted']],inplace = True)
         artDF = artDF/artDF.get_value('Power','Total')
-        print(art)
         print(artDF)
-        print(abs_power,refl_power,tran_power)
     
     total_power = np.sum(raw)*pix_size**2
     window_power = np.sum(window)*pix_size**2 
     cell_power = np.sum(power)    
-        
+    
+    print('Cell Frac Calculation Check')
+    print(abs_power+refl_power+tran_power, window_power)
+    print(acellpow+rcellpow+tcellpow, cell_power)
+    print(total_power)
+    
     cell_frac = cell_power/window_power #for power split modeling
     spillage_frac = 1-window_power/total_power #for model comparison
     window_frac = window_power/total_power #to confirm calc and scale input power
@@ -216,6 +249,18 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
     title = 'Window Map'
     export_map(window_area,filename,'window scaled.png',rng,'nipy_spectral',title)
     
+    title = 'Absorption Map'
+    rng = [0,1]
+    export_map(abs_map, filename, 'absorption map.png',rng,'Greys', title)
+    
+    title = 'Reflection Map'
+    rng = [0,1]
+    export_map(refl_map, filename, 'reflection map.png',rng,'Greys', title)
+    
+    title = 'Transmission Map'
+    rng = [0,1]
+    export_map(tran_map, filename, 'transmission map.png',rng,'Greys', title)
+    
     to_return = {'spillage': spillage_frac,
                   'windowFraction': window_frac,
                   'bypass': (1-cell_frac),
@@ -232,5 +277,7 @@ def Fluxmap(fluxFile,r_aperture,map_DNI,cells_per_side, artFile=None,
 
     return()
    
-#Fluxmap('65.0_515DNI.csv', 0.15/2,515,11)
-Fluxmap('58.5_844DNI.xlsx', 0.08/2,844,7,'Mod6_ART', -100,-100, exclude = 4)
+#exclusion list should have numbers for columns, letters in lower case for rows
+#with starting index at 1 and 'a' respectively
+Fluxmap('65.0_515DNI.csv', 0.15/2,515,11, 'Mod8_ART', exclude = [6])
+#Fluxmap('58.5_844DNI.xlsx', 0.08/2,844,7,'Mod6_ART', -100,-100, exclude = 4)

@@ -66,12 +66,12 @@ def BinaryMarketMap(priceDrop):
     fig = plt.figure(figsize=(4, 1))
     ax1 = fig.add_axes([0.05, 0.80, 0.9, 0.15])
     cmap = mpl.cm.RdYlGn
-    norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+    norm = mpl.colors.Normalize(vmin=vmin*100, vmax=vmax*100)
     
     cb1 = mpl.colorbar.ColorbarBase(ax1, cmap=cmap,
                                     norm=norm,
                                     orientation='horizontal')
-    cb1.set_label('Price Reduction vs Fuel')
+    cb1.set_label('% Price Change vs Fuel')
     plt.savefig(os.path.join('Market_Resources',' '.join((title,'Scale.png'))),
                 dpi = 300, bbox_inches='tight')
     plt.close()
@@ -80,4 +80,5 @@ df = pd.read_csv(os.path.join('Market_Resources','Market Prices.csv'), index_col
 #print(df[['Hybrid Com NG Price Change']])
 BinaryMarketMap(df[['Hybrid Com NG Price Change']])
 BinaryMarketMap(df[['Hybrid Ind NG Price Change']])
-
+BinaryMarketMap(df[['CSP Com NG Price Change']])
+BinaryMarketMap(df[['CSP Ind NG Price Change']])

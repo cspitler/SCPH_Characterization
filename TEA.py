@@ -2,7 +2,11 @@ import math
 import numpy as np
 import pandas as pd
 import os
-from scipy.stats import linregress
+from sklearn.linear_model import LinearRegression 
+from sklearn.preprocessing import PolynomialFeatures, FunctionTransformer
+from sklearn.pipeline import Pipeline
+import matplotlib.pyplot as plt
+from copy import deepcopy 
 
 class PVTsystem:
     def __init__(self, filename):
@@ -178,7 +182,7 @@ def MarketAnalysis(pvtsystem, locationFile):
     
     market = ['Com','Ind']
     systems = {'Hybrid':[pvtsystem.elecFrac,pvtsystem.heatFrac],
-               'CSP':[0,0.7]}
+               'CSP':[0,pvtsystem.elecFrac+pvtsystem.heatFrac+.147]}
     
     marketDict = {}
     def stateLCOH(x):
@@ -231,6 +235,91 @@ def classSensitivity(system, func, var, exclude = [], vary = 0.05, resolution = 
     
     return(pd.DataFrame.from_dict(sensitivityDict))
 
+def TornadoPlot(DF):
+    #Takes dataFrame with index as parameters and columns as percent change
+    DF = DF[DF.columns[[0,-1]]]
+    DF.columns = ['lo','hi']
+    DF['base'] = system.priceChange
+    DF['Change'] = abs(DF['lo']-DF['hi'])
+    
+    DF.sort_values('Change',inplace=True, ascending =False)
+
+    DF=DF[DF>0.01].dropna()
+
+    #removes those with no effect
+    #zero = np.argwhere(data[:,7]=='0.0')
+    #data = np.delete(data,zero,0)
+    
+    #Sets up data for plotting
+    variables = DF.index.tolist() #data[:,0]
+    base = DF['base'].mean() #data[0][5].astype(float)
+    lows = DF['lo'].tolist() #data[:,4].astype(float)
+    highs = DF['hi'].tolist() #data[:,6].astype(float)
+    
+    #low_var = data[:,1]
+    #high_var = data[:,3]
+        
+    
+    #Copied from Marijn van Vliet on STack OVerflow
+    # The y position for each variable
+    fig = plt.figure()    
+    ys = range(len(highs))[::-1]  # top to bottom
+      
+        
+    # Plot the bars, one by one
+    for y, low, high in zip(ys, lows, highs):
+        # The width of the 'low' and 'high' pieces
+        
+        low_width = base - low
+        high_width = high - base
+        # Each bar is a "broken" horizontal bar chart
+        plt.broken_barh(
+            [(low, low_width), (base, high_width)],
+            (y - 0.4, 0.8),
+            facecolors=['red', 'blue'],  # Try different colors if you like
+            edgecolors=['black', 'black'],
+            linewidth=1,
+            )
+    
+        # Display the value as text. It should be positioned in the center of
+        # the 'high' bar, except if there isn't any room there, then it should be
+        # next to bar instead.
+        '''
+        if high > base:
+            try:
+                plt.text(high+0.1,y,str(hvar),va='center', ha='center',color='k')
+            except:
+                pass
+        
+        x = base + high_width / 2
+        if x <= base + 50:
+            x = base + high_width + 50
+        plt.text(x, y, str(high), va='center', ha='center', color = 'k')
+        '''
+    # Draw a vertical line down the middle
+    plt.axvline(base, color='black')
+    
+    # Position the x-axis on the top, hide all the other spines (=axis lines)
+    axes = plt.gca()  # (gca = get current axes)
+    axes.spines['left'].set_visible(False)
+    axes.spines['right'].set_visible(False)
+    axes.spines['bottom'].set_visible(False)
+    axes.xaxis.set_ticks_position('top')
+    
+    size = fig.get_size_inches()*fig.dpi
+    font = (size[1]/len(ys))*0.4
+    # Make the y-axis display the variables
+    plt.tick_params(axis='both', which='major', labelsize=font)
+    plt.yticks(ys, variables)
+    
+    # Set the portion of the x- and y-axes to show
+    #plt.xlim(base - 1000, base + 1000)
+    plt.ylim(-1, len(variables))
+    
+
+    #plt.savefig('.'.join((savefile,'png')), facecolor = 'white',dpi=90, bbox_inches='tight')
+    return(fig)
+    
 def hitTarget(sensitivityDF, system = None, target = None):
     if target == None: target = sensitivityDF.mean()
     targetDF = systemSense[systemSense < target].dropna(axis = 1, how = 'all')
@@ -255,36 +344,85 @@ def hitTarget(sensitivityDF, system = None, target = None):
     else:
         return(targetDF)
     
-def improvementMap(sensitivityDF, system, var, func = None,  target = None, 
-                   incr = 0.01, maxIter = 400, fixedCost = 1.5):
+def improvementMap(sensitivityDF, system, var, changeCap = None, func = None,  target = None, 
+                   incr = 0.01, maxIter = 400, costIncr = 1.5, fits = None, fitAccept = 0.98):
+    
+    def checkSign(step):
+        if step > 0:
+            return(-1)
+        return(1)
+           
+    original = getattr(system,var)
+
     if target == None: target = sensitivityDF.mean()
     trends = {}
-    for col in sensitivityDF.columns:
-        m, y, r, p, err = linregress(sensitivityDF.index, sensitivityDF[col])
-        if r**2 > 0.95:
-            trends[col] = {'type': 'linear', 'r^2':r**2, 'slope':m,'y':y,
-                          'abs(slope)': abs(m),'cost':1.0, 'changes':0.0}
-    trendDF = pd.DataFrame.from_dict(trends, orient = 'index')
-    toTarget = getattr(system,var)-target
     
-    original = (getattr(system,var))
-
-    i = 0
-    while toTarget>0:
-        trendDF['$/chn'] = trendDF['cost']/trendDF['abs(slope)']
-        trendDF.sort_values(['$/chn'], ascending = True, inplace = True)
-        toTweak = trendDF.iloc[0]
-        if trendDF.at[toTweak.name,'slope'] > 0:
-            chg = -incr
+    #fits each parameter with best model (highest Rsq)
+    paramCount = len(sensitivityDF.columns.tolist())
+    paramFitCnt = 0
+    for col in sensitivityDF.columns:
+        base = getattr(system,col)
+        X = [[x] for x in sensitivityDF.index]
+        Y = [[y] for y in sensitivityDF[col]]
+        
+        fitDict = {}
+        
+        if not fits:
+            colFit = deepcopy(LinearRegression().fit(X,Y))
+            Rsq = colFit.score(X,Y)
+            fitDict[Rsq] = {'model':colFit,'step': colFit.predict(incr)[0][0]-original}
         else:
-            chg = incr
+            for f in fits:
+                colFit = deepcopy(f.fit(X,Y))
+                Rsq = f.score(X,Y)
+                fitDict[Rsq] = {'model':colFit,'step': colFit.predict(incr)[0][0]-original}                
+                if Rsq > fitAccept: 
+                    paramFitCnt +=1
+                    break
             
-        trendDF.at[toTweak.name,'changes'] = trendDF.at[toTweak.name,'changes'] + chg
-        trendDF.at[toTweak.name,'cost'] = trendDF.at[toTweak.name,'cost']*fixedCost
-        #print(toTweak.name, trendDF.at[toTweak.name,'abs(slope)'])
-        #print(chg)
-        toTarget += chg*trendDF.at[toTweak.name,'abs(slope)']
-        #print(toTarget)
+        Rsq = max(list(fitDict.keys()))
+        m = fitDict[Rsq]['step']
+        if m != 0:
+            trends[col] = {'model': fitDict[Rsq]['model'], 'r^2':Rsq, 
+                          'step':m, 'abs(step)': abs(m),
+                          'cost/incr':1.0, 'initial': base,'changes':0.0}
+
+        sensitivityDF[col].plot()
+        
+    trendDF = pd.DataFrame.from_dict(trends, orient = 'index')
+    
+    toTarget = getattr(system,var)-target
+    #finds 'cheapest' path to target
+    i = 0
+    changeLog = []
+    while toTarget>0:
+        trendDF['$/chn'] = trendDF['cost/incr']/trendDF['abs(step)']
+        trendDF.sort_values(['$/chn'], ascending = True, inplace = True)
+        tweakIdx = 0
+        toTweak = trendDF.iloc[tweakIdx]
+        if changeCap: #implemented to cap changes to specific parameters
+            while True and toTweak.name in changeCap.keys():
+                sign = checkSign(trendDF.at[toTweak.name,'step'])
+                tweaked =  getattr(system,toTweak.name)*(1 + trendDF.at[toTweak.name,'changes'] + sign*incr)
+                if tweaked < changeCap[toTweak.name]['max'] and tweaked > changeCap[toTweak.name]['min']:
+                    break
+                #print('Cap reached')
+                tweakIdx +=1
+                toTweak = trendDF.iloc[tweakIdx]
+
+        sign = checkSign(trendDF.at[toTweak.name,'step'])
+        trendDF.at[toTweak.name,'changes'] = trendDF.at[toTweak.name,'changes'] + sign*incr
+        trendDF.at[toTweak.name,'cost/incr'] = trendDF.at[toTweak.name,'cost/incr']*costIncr
+        toTarget += sign*trendDF.at[toTweak.name,'step']
+        changeLog.append([toTweak.name, sign, trendDF.at[toTweak.name,'step']])
+
+        
+
+        model = trendDF.at[toTweak.name,'model']
+        chg = trendDF.at[toTweak.name,'changes']
+        step = model.predict(chg+incr)-model.predict(chg)
+        
+        trendDF.at[toTweak.name,'step'] = step
 
         ''' 
         #Redo sensitivity analysis with new value
@@ -309,40 +447,58 @@ def improvementMap(sensitivityDF, system, var, func = None,  target = None,
         if i == maxIter:
             break
     
+    changeLog = pd.DataFrame(changeLog, columns = ['Param','direction','Step'])
     for idx in trendDF.index:
         base = getattr(system,idx)
         change = trendDF.at[idx,'changes']
         setattr(system,idx, base*(1+change))
+        trendDF.at[idx,'Final'] = base*(1+change)
     
     system.calcLCOH()
+    print()
     if toTarget > 0:
         print('Did Not Converge after {0:d} iterations'.format(maxIter))
-        print('Start: ', original)
-        print('Target: ', target)
-        print('Final: ', getattr(system,var))
     else:
         print('Converged after {0:d} iterations'.format(i))
-        return(trendDF.sort_values('changes',ascending = False))
+    print('Start: ', original)
+    print('Target: ', target)
+    print('Final: ', getattr(system,var))  
+    print('Parameters fit {0:d}/{1:d}'.format(paramFitCnt,paramCount))
     
+    #print(changeLog)
+    return(trendDF.sort_values('changes',ascending = False))
+    
+'''
 system = PVTsystem(os.path.join('Market_Resources','DefaultTEA.csv'))
 
 system.heatFrac = 0.42
 system.elecFrac = .03
-system.stateEPBB = 0.00
+system.stateEPBB = 0.6
+system.pvCost = 80
+system.collectorCost = 288
 system.calcLCOH()
-
-exclude = ['elecCost','fedITC','interestRate','discountRate','taxRate']
+print(system.priceChange)
+exclude = ['elecCost','fedITC','interestRate','discountRate','taxRate','omEscalation',
+           'lifetime','stateEPBB','DNI','fuelCost','loanTerm']
 systemSense = classSensitivity(system, 'calcLCOH', var = 'priceChange',exclude = exclude, 
-                               vary = .9, resolution = 40)
-#print(hitTarget(systemSense, system, -0.0))
-print(improvementMap(systemSense, system, var = 'priceChange', target = -0.6))
+                               vary = .5, resolution = 40)
+#TornadoPlot(systemSense.T).savefig('50% sensitivity', dpi = 300, bbox_inches='tight')
+'''
+'''Change Cap Dictionary structure'''
 
-#members = [attr for attr in dir(system) if not callable(getattr(system, attr)) and not attr.startswith("__")]
-#print(members)
+#changeCap = {'collectorCost': {'min': 200, 'max': 300}}
 
-#print(system.LCOEnergy)
-#system.stateEPBB= 0.6
-#system.statePBI = 0.3
-#system.calcLCOH(system.elecFrac,system.heatFrac)
-#print(system.LCOEnergy)
+'''Model List should be in order of preferance of fit'''
+'''
+lin = LinearRegression()
+quad = Pipeline(steps = [('polyTrans',PolynomialFeatures()),
+                         ('linRegress',LinearRegression())])
+fits = [lin,quad]
+
+print(improvementMap(systemSense, system, var = 'priceChange', target = -0.4,
+                     changeCap = changeCap, fits = fits))
+
+
+
 #MarketAnalysis(system,os.path.join('Market_Resources','State data.csv'))
+'''

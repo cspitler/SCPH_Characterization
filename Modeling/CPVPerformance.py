@@ -448,10 +448,10 @@ def MaxFlux():
 '''Sets up file and report system'''
 
 fluxFolder = '65.0_515DNI'
-module = 7
+module = 8
 
-module_file = 'Mod7_Design.csv'
-Cell_art = 'Mod7_CellART.csv'
+module_file = 'Mod8_Design.csv'
+Cell_art = 'Mod8_CellART.csv'
 
 calculated_props = {}
 
@@ -474,7 +474,7 @@ delta_cells = 0.001 # [m] distance between cells
 w_channel = w_cell # [m] set each channel width to cell width
 k_comp = bubbles(0,0,'low')#,bub_dist)
 
-TC_pos = ['AB22','BC66','DD44','EF22','FG55']
+TC_pos = ['AB23','DE78','FG67','HI33']
 
 '''Sets spectrum to be used'''
 ART = np.genfromtxt(os.path.join('Module_Properties',Cell_art),dtype = float, delimiter = ',')

@@ -267,11 +267,12 @@ print()
 
 #Modeled Power flow
 modeled = pd.DataFrame()
-modeled['PV Power'] = pd.Series(CPV_elec*cell_frac*data_df['Spillage Adj P'].mean()*(1-CPV_mismatch))
-modeled['PV Cooling'] = pd.Series(CPV_heat*cell_frac*data_df['Spillage Adj P'].mean())
-modeled['Transmitted'] = pd.Series(CPV_tran*data_df['Spillage Adj P'].mean())
-modeled['Reflection'] = pd.Series(df['Pin'].mean()*window_frac*CPV_refl)
-modeled['Elec Loss'] = powerflow_df['Elec Loss'].mean()
+dishLosses = (1-shading)*(1-mirror_loss)
+modeled['PV Power'] = pd.Series(CPV_elec*cell_frac*data_df['Spillage Adj P'].mean()*(1-CPV_mismatch))*dishLosses
+modeled['PV Cooling'] = pd.Series(CPV_heat*cell_frac*data_df['Spillage Adj P'].mean())*dishLosses
+modeled['Transmitted'] = pd.Series(CPV_tran*data_df['Spillage Adj P'].mean())*dishLosses
+modeled['Reflection'] = pd.Series(df['Pin'].mean()*window_frac*CPV_refl)*dishLosses
+modeled['Elec Loss'] = powerflow_df['Elec Loss'].mean()*dishLosses
 modeled.to_excel('Modeled power plot.xlsx')
 
 error_dict={}
