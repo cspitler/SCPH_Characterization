@@ -1,0 +1,398 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Nov  6 16:40:51 2017
+
+@author: Riggs
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+from re import search
+import sLCOH_slim as npv
+from scipy import integrate
+
+'''TEST PARAMETERS FOR CALCULATION'''
+
+#Test parameters
+masking = 0.17
+
+filename = '6-28 Test3'
+PVMPP = '6-28 Test3-1'
+IVsummary = '6-28 Test3'
+IVsweep = '6-28 Test3-1-1'
+
+PVmanualflow = 1060/300
+TRmanualflow = 860/1200 #1030/1200
+PVTCoffset = 0
+TRTCoffset = 0
+
+
+#Calibration constants
+PV_flow_cal = 3.3 #(20/3-2/6)/(5)
+TR_flow_cal = .96 #200/(5*60)
+PV_pres_cal = 15/0.12
+GHI_cal = 5000
+DNI_cal = 0.00000776
+Cp_water = 4.184
+
+CPV_wire_R = 0.05
+CPV_R = 14
+CPV_heat = 0.35
+Cell_area = 0.0055**2
+Avg_conc = 500
+
+
+wet_area = 0.044*0.0055
+d_channel = 0.00025 # [m] depth of cooling channel
+w_channel = 0.0055 # [m] set each channel width to cell width
+A_c = w_channel*d_channel # [m2] x-sectional area PER channel
+D_H = 4*A_c/(2*w_channel + 2*d_channel) # [m] hydraulic diameter of channel
+
+#Imports guide to channel names
+xls = pd.ExcelFile('Channel guide3.xlsx')
+channel_df = xls.parse()
+
+#Imports metrics from IV sweeps
+IV_df = pd.read_table(''.join((IVsummary,'.txt')))
+IV_df['time (min)'] = IV_df['time (s)    '].astype(float)/60 #
+IV_inteveral = IV_df.get_value(1,'time (s)    ')-IV_df.get_value(0,'time (s)    ')
+IV_df.set_index('time (min)',inplace=True)
+IV_df.columns = ['Time s','Pmax','Imp','Vmp','Jsc','Isc','Voc','FF']
+mask = IV_df.isin([np.inf,-np.inf])   
+IV_df = IV_df.where(~mask, other=np.nan)
+
+#Imports IV sweeps
+sweep_df = pd.read_table(''.join((IVsweep,'.txt')))
+sweep_df['Voltage (V)'] = sweep_df['Voltage (V)'].str.replace(', ','')
+sweep_df['Voltage (V)'] = sweep_df['Voltage (V)'].str.replace('[','')
+sweep_df['Voltage (V)'] = sweep_df['Voltage (V)'].str.replace(']','')
+starts = sweep_df.loc[sweep_df['Voltage (V)'].astype(float)%100 == 0]
+starts = starts[starts['Voltage (V)'].astype(float)>0]
+sweep_idx = starts.index.values.tolist()
+
+
+#Imports mpp log
+mpp_df = pd.read_table(''.join((PVMPP,'.txt')))
+mpp_df['Elapsed Min']=mpp_df['Time (s)']/60
+mpp_df.set_index('Elapsed Min',inplace=True)
+
+#Imports data logger data
+df = pd.DataFrame.from_csv(''.join((filename,'.csv')),sep = '\t')
+
+#Renames channels with descriptor names
+col = channel_df['Name'].tolist()
+col.insert(0,'Time')
+df.columns = col
+
+#Converts time into elapsed time in Minutes
+
+df['Date'], df['Time'] = df['Time'].str.split(' ', 1).str
+df['Hr'], df['Min'], df['Sec'],df['msec']  =  df['Time'].str.split(':').str
+df['Sec'] = df['Sec'].astype(int)+df['msec'].astype(int)/1000
+df['Min']= df['Min'].astype(int)+df['Sec'].astype(float)/60
+df['Hr']= df['Hr'].astype(int)+df['Min'].astype(float)/60
+df['Elapsed Min'] = (df['Hr'].astype(float)-min(df['Hr']).astype(float))*60
+df.set_index('Elapsed Min',inplace=True)
+
+if not os.path.isdir(os.path.join(filename)):
+    os.makedirs(os.path.join(filename))
+os.chdir(os.path.join(filename))
+
+'''CALCULATIONS AND PLOTTING SECTION'''
+
+df['DNI'] = df['DNI Sensor (V)'].astype(float)/DNI_cal
+df['Pin'] = df['DNI'].astype(float)*masking*1.65**2
+df['Receiver Net Pin'] = df['Pin']*.92*.962
+
+data_df = df.copy(deep=True)
+data_df['TR Flow']= TRmanualflow#data_df['TR Flow V']**2*2.9185 + 2.2314*data_df['TR Flow V'] #y = 2.9185x2 + 2.2314x
+
+data_df['PV Flow']= PVmanualflow#data_df['PV Flow V']*PV_flow_cal
+data_df['PV Pres inlet'] = data_df['PV Inlet P Sensor (V)']*PV_pres_cal
+data_df['PV Pres outlet'] = data_df['PV Outlet P Sensor (V)']*PV_pres_cal
+data_df['PV dPres']= data_df['PV Pres outlet']-data_df['PV Pres inlet']
+todrop = ['Date','Hr','Min','Sec','msec',
+          'PV Outlet P Sensor (V)','PV Inlet P Sensor (V)'] #'TR Flow V','PV Flow V',
+data_df = data_df.drop(todrop, 1)
+data_df.to_excel('_'.join((filename,'calculations.xlsx')))
+
+#Power plot
+powerflow_df = pd.DataFrame(columns = ['Thermal Receiver','PV Cooling'])
+TR_flow = .79 #df['TR Flow V'].mean()*TR_flow_cal
+powerflow_df['Thermal Receiver']=(df['TR Outlet'].astype(float)-df['TR Inlet'].astype(float)-TRTCoffset)*TRmanualflow*Cp_water
+powerflow_df['PV Cooling'] = (df['PV Outlet'].astype(float)-df['PV Inlet'].astype(float)-PVTCoffset)*PVmanualflow*Cp_water#*df['PV Flow V']*PV_flow_cal
+powerflow_df = pd.concat([powerflow_df,mpp_df['Power (W)'].astype(float)],axis =1)
+powerflow_df.rename(columns = {'Power (W)':'PV Power'},inplace=True)
+
+
+#remove negative and interpolates missing data
+powerflow_df = powerflow_df[powerflow_df>0]
+powerflow_df['PV Power'] = powerflow_df['PV Power'].interpolate()
+powerflow_df['Thermal Receiver'] = powerflow_df['Thermal Receiver'].interpolate()
+powerflow_df['PV Cooling'] = powerflow_df['PV Cooling'].interpolate()
+powerflow_df=powerflow_df[['Thermal Receiver','PV Cooling','PV Power']]
+
+##Plot power
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+ax1 = powerflow_df.plot.area()
+ax1.plot(df.index,df['Pin'])
+ax1.plot(df.index,df['Receiver Net Pin'])
+ax1.legend(loc ='center right')
+plt.title('Power Flow for Integrated Test')
+plt.xlabel('Elapsed Time / min')
+plt.ylabel('Cumulative Power / W')
+ax1.set_ylim([0,max(df['Pin'])*1.10])
+plt.savefig('Power Plot.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+##Adds fraction of total input
+powerflow_df['Pin']=df['Pin']
+powerflow_df['Pin'] = powerflow_df['Pin'].interpolate()
+sm = 5
+powerflow_df['TR fraction']=(powerflow_df['Thermal Receiver']/df['Pin']).rolling(center=False, window=sm).median().interpolate()
+powerflow_df['PV fraction']=(powerflow_df['PV Power']/df['Pin']).rolling(center=False, window=sm).median().interpolate()
+powerflow_df['PV Cooling fraction']=(powerflow_df['PV Cooling']/df['Pin']).rolling(center=False, window=sm).median().interpolate()
+powerflow_df['Pin fraction']=df['Pin']/df['Pin']
+powerflow_df = powerflow_df[powerflow_df>0]
+
+TRfrac = powerflow_df['TR fraction'].mean()
+PVfrac = powerflow_df['PV fraction'].mean()
+Coolingfrac = powerflow_df['PV Cooling fraction'].mean()
+losses = 1-(TRfrac+PVfrac+Coolingfrac)
+
+powerflow_df.to_excel('_'.join((filename,'powerflow.xlsx')))
+
+#Economic Analysis based on test data
+DNI = integrate.trapz(df['DNI'],df.index)/60/1000
+npv.Avg_DNI = DNI
+npv.Output_th = TRfrac*1000
+npv.Output_el = PVfrac*1000
+npv.El_eff = PVfrac
+npv.Th_eff = TRfrac
+npv.report_Summary()
+print(DNI)
+Heat = integrate.trapz(powerflow_df['Thermal Receiver'][pd.notnull(powerflow_df['Thermal Receiver'])],dx=0.25)/60/1000
+Elec = integrate.trapz(powerflow_df['PV Power'][pd.notnull(powerflow_df['PV Power'])],dx=0.25)/60/1000
+print(Heat/DNI)
+print(Elec/DNI)
+print(Heat, Elec)
+
+
+##Plots fractional power over time
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+ax1.plot(powerflow_df.index,powerflow_df['TR fraction'])
+ax1.plot(powerflow_df.index,powerflow_df['PV fraction'] )
+ax1.plot(powerflow_df.index,powerflow_df['PV Cooling fraction'] )
+ax1.plot(powerflow_df.index,powerflow_df['Pin fraction'])
+plt.title('Power Fraction for Integrated Test')
+plt.xlabel('Elapsed Time / min')
+plt.ylabel('Fractional Power / W')
+ax1.set_ylim([0,max(powerflow_df['Pin fraction'])*1.10])
+plt.legend(loc ='upper right')
+plt.savefig('Power Fraction.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+#PV Cell temperatures
+plt.title('PV Cell Temperatures')
+plt.plot(df.index,df['PV TC1'], label = 'TC1')
+plt.plot(df.index,df['PV TC2'], label = 'TC2')
+#plt.plot(df.index,df['PV TC3'], label = 'TC3')
+plt.plot(df.index,df['PV TC4'], label = 'TC4')
+#plt.plot(df.index,df['PV TC5'], label = 'TC5')
+plt.ylim([0,105])
+plt.legend(loc ='lower right')
+plt.ylabel('Cell Temperature / deg C')
+plt.xlabel('Elapsed Time / min')
+plt.ylim([20,110])
+plt.savefig('PV cell temperatures.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+#TR and PV inlet outlet
+plt.title('System Fluid Temperatures')
+plt.plot(df.index,df['PV Outlet'], label = 'PV Outlet')
+plt.plot(df.index,df['PV Inlet'], label = 'PV Inlet')
+plt.plot(df.index,df['TR Outlet'], label = 'TR Outlet')
+plt.plot(df.index,df['TR Inlet'], label = 'TR Inlet')
+plt.plot(df.index,df['HTF Line'], label = 'HTF Line', c = 'y')
+plt.legend()
+plt.ylabel('Temperature / deg C')
+plt.xlabel('Elapsed Time / min')
+plt.ylim([20,130])
+plt.savefig('PV cooling and TR flow.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+#PV flow and pressure drop vs time
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+ax2 = ax1.twinx()
+plt.title('PV cooling flow and pressure drop vs time')
+ax1.set_xlabel('Elapsed Time / min')
+
+ax1.plot(data_df['PV Flow'], label = 'PV Cooling Flowrate', c = 'b')
+ax1.set_ylim([0,10])
+ax1.set_ylabel('Flowrate [g/s]')
+ax1.legend(loc = 'upper left')
+
+ax2.plot(data_df.index, data_df['PV Pres outlet']-data_df['PV Pres inlet'] , label = 'PV Cooling Pressure Drop',c = 'r')
+ax2.set_ylim([0,10])
+ax2.set_ylabel('Pressure Drop [psi]')
+ax2.legend(loc ='upper right')
+
+plt.savefig('PVcoolingflow.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+'''
+#TR flow and pressure drop vs time
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+ax2 = ax1.twinx()
+plt.title('TR cooling flow and pressure drop vs time')
+ax1.set_xlabel('Elapsed Time / min')
+
+ax1.plot(data_df['TR Flow'], label = 'TR Flowrate', c = 'b')
+ax1.set_ylim([0,5])
+ax1.set_ylabel('Flowrate [g/s]')
+ax1.legend(loc = 'upper left')
+
+ax2.plot(data_df.index,data_df['TR Pres inlet']-data_df['TR Pres outlet'], label = 'TR Pressure Drop',c = 'r')
+ax2.set_ylim([0,1000])
+ax2.set_ylabel('Pressure Drop [psi]')
+ax2.legend(loc ='upper right')
+
+plt.savefig('TRflow.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+'''
+#Jsc and Voc vs time
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+ax2 = ax1.twinx()
+plt.title('Jsc and Voc vs time')
+ax1.set_xlabel('Elapsed Time / min')
+
+ax1.plot(IV_df.index,IV_df['Jsc'], label = 'Jsc', c = 'b')
+ax1.set_ylim([0,max(IV_df['Jsc'])*1.50])
+ax1.set_ylabel('Jsc [mA/cm$^2$]')
+ax1.legend(loc = 'upper left')
+
+ax2.plot(IV_df.index,IV_df['Voc'], label = 'Voc',c = 'r')
+ax2.set_ylim([0,max(IV_df['Voc'])*1.50])
+ax2.set_ylabel('Voc [Volts]')
+ax2.legend(loc ='upper right')
+
+plt.savefig('Jsc and Voc over time.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+     
+     #Plots IV curves
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+for i in range(len(sweep_idx)):
+    if i %1==0:
+        try:
+            tdf = sweep_df[sweep_idx[i]:sweep_idx[i+1]]
+            tdf = tdf.drop([sweep_idx[i], sweep_idx[i]+1])
+            timestamp = (i+1)*IV_inteveral/60
+            ax1.scatter(tdf['Voltage (V)'].astype(float),tdf['Current (A)'].astype(float),label = '{0:0.2f}'.format(timestamp))
+        except:
+            pass
+        
+plt.title('IV curves')
+plt.xlabel('Voltage / V')
+plt.ylabel('Current / A')
+start, end = ax1.get_xlim()
+ax1.xaxis.set_ticks(np.arange(0, end, 1))
+#ax1.xaxis.set_major_formatter(ticker.FormatStrFormatter('%0.0f'))
+plt.legend(title = 'Time/min',loc='lower left', fontsize = 12)
+plt.savefig('IV Curves.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+for i in range(len(sweep_idx)):
+    if i %1==0:
+        try:
+            tdf = sweep_df[sweep_idx[i]:sweep_idx[i+1]]
+            tdf = tdf.drop([sweep_idx[i], sweep_idx[i]+1])
+            timestamp = (i+1)*IV_inteveral/60
+            #ax1.scatter(tdf['Voltage (V)'].astype(float),tdf['Current (A)'].astype(float)/ df.ix[(df['Elapsed Min']-timestamp).abs().argsort(), 'Pin']#timestamp/ max(df['Elapsed Min'])* len(df['Elapsed Min'])).astype(int),'Pin'],label = '{0:0.2f}'.format(timestamp))
+        except:
+            pass
+        
+ 
+plt.title('IV curves')
+plt.xlabel('Voltage / V')
+plt.ylabel('Current/Pin / A/W')
+ax1.set_ylim([0, 1.50 * max(tdf['Current (A)'])/ max(df['Pin'])])
+ax1.set_xlim([0, 20])
+
+#start, end = ax1.get_xlim()
+#ax1.xaxis.set_ticks(np.arange(0, end, 1))
+#ax1.xaxis.set_major_formatter(ticker.FormatStrFormatter('%0.0f'))
+plt.legend(title = 'Time/min',loc='lower left', fontsize = 12)
+plt.savefig('IV Curves vs Pin.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+
+
+#Estimate power loss in CPV module
+wire_loss = (CPV_wire_R*IV_df['Imp']**2).mean()
+loss_frac = wire_loss/(powerflow_df['PV Power'].mean()+wire_loss)
+
+#DNI and GHI
+plt.title('DNI')
+plt.plot(df.index,df['DNI'])
+plt.plot(df.index,df['GHI1']*GHI_cal)
+plt.plot(df.index,df['GHI2']*GHI_cal)
+plt.plot(df.index,df['GHI3']*GHI_cal)
+plt.plot(df.index,df['GHI4']*GHI_cal)
+plt.title('Solar Resource')
+plt.ylabel('Irradiance / W/m$^2$')
+plt.xlabel('Elapsed Time / min')
+plt.ylim([0,max(df['DNI'])*1.1])
+plt.legend(loc ='upper right')
+plt.savefig('Solar Resource.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+#DNI vs Cell Temp
+plt.title('DNI Cell Temp Correlation')
+plt.scatter(df['DNI'],df['PV TC1'], label = 'TC1',c = 'b')
+plt.scatter(df['DNI'],df['PV TC2'], label = 'TC2',c = 'r')
+#plt.scatter(df['DNI'],df['PV TC2'], label = 'TC3',c = 'y')
+plt.scatter(df['DNI'],df['PV TC4'], label = 'TC4',c = 'm')
+#plt.scatter(df['DNI'],df['PV TC5'], label = 'TC5',c = 'c')
+modelx = np.linspace(0,max(df['DNI']),50)
+modely = Avg_conc*modelx*Cell_area*CPV_heat*CPV_R+df['PV Inlet'].mean()
+#plt.plot(modelx,modely,label = (' '.join(('Modeled',str(Avg_conc),'suns'))),linewidth =5)
+
+plt.legend(loc='upper left')
+plt.ylabel('Cell Temperature / deg C')
+plt.xlabel('DNI / W/m$^2$')
+plt.xlim([0,max(df['DNI'])*1.1])
+plt.savefig('DNI cell temp correlation.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+#Thermal System evaluation
+Thermal = pd.DataFrame(index =df.index)
+Thermal['LMTD']=df[['PV TC2','PV TC4',]].mean(axis=1)-df[['PV Outlet','PV Inlet']].mean(axis=1)
+Thermal['U'] = powerflow_df['PV Cooling']/(Thermal['LMTD']*0.00171)
+Thermal['R'] = Thermal['LMTD']/powerflow_df['PV Cooling']
+
+#DNI vs Jsc
+JvDNI_df = pd.DataFrame(columns = ['Jsc','DNI'])
+J_df = pd.DataFrame(IV_df['Jsc'])
+JvDNI_df['DNI']=df['DNI']
+JvDNI_df = JvDNI_df.combine_first(J_df)
+JvDNI_df['Jsc']=JvDNI_df['Jsc'].interpolate()
+JvDNI_df['DNI']=JvDNI_df['DNI'].interpolate()
+
+plt.title('DNI vs Jsc Correlation')
+plt.scatter(JvDNI_df['DNI'],JvDNI_df['Jsc'])
+plt.ylim([0,max(JvDNI_df['Jsc'])*1.1])
+plt.xlim([0,max(JvDNI_df['DNI'])*1.1])
+plt.ylabel('Jsc / Amp')
+plt.xlabel('DNI / W/m$^2$')
+plt.savefig('DNI Jsc correlation.png',facecolor = 'white',dpi=90, bbox_inches='tight')
+plt.close()
+
+
